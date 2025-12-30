@@ -9,7 +9,6 @@
 import { RowDataPacket, ResultSetHeader } from 'mysql2';
 import { query, getConnection } from '../config/database.js';
 import {
-  RequestType,
   RequestStatus,
   ActionType,
   FileType,
@@ -18,21 +17,22 @@ import {
   RequestWithDetails,
   STEP_ROLE_MAP,
   ROLE_STEP_MAP,
+  CreateRequestDTO,
+  BatchApproveParams,
+  BatchApproveResult,
 } from '../types/request.types.js';
 
 /**
  * Create a new request in DRAFT status
  *
  * @param userId - ID of the user creating the request
- * @param requestType - Type of PTS request
- * @param submissionData - Request-specific data as JSON
+ * @param data - Request data including all P.T.S. form fields
  * @param files - Uploaded file attachments
  * @returns Created request with attachments
  */
 export async function createRequest(
   userId: number,
-  requestType: RequestType,
-  submissionData: any,
+  data: CreateRequestDTO,
   files?: Express.Multer.File[]
 ): Promise<RequestWithDetails> {
   const connection = await getConnection();
@@ -40,12 +40,37 @@ export async function createRequest(
   try {
     await connection.beginTransaction();
 
-    // Insert request with DRAFT status
+    // Prepare work_attributes JSON
+    const workAttributesJson = data.work_attributes
+      ? JSON.stringify(data.work_attributes)
+      : null;
+
+    // Prepare submission_data JSON (for backward compatibility)
+    const submissionDataJson = data.submission_data
+      ? JSON.stringify(data.submission_data)
+      : null;
+
+    // Insert request with DRAFT status and all new fields
     const [result] = await connection.execute<ResultSetHeader>(
       `INSERT INTO pts_requests
-       (user_id, request_type, status, current_step, submission_data)
-       VALUES (?, ?, ?, ?, ?)`,
-      [userId, requestType, RequestStatus.DRAFT, 1, JSON.stringify(submissionData)]
+       (user_id, personnel_type, position_number, department_group,
+        main_duty, work_attributes, request_type, requested_amount,
+        effective_date, status, current_step, submission_data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        data.personnel_type,
+        data.position_number || null,
+        data.department_group || null,
+        data.main_duty || null,
+        workAttributesJson,
+        data.request_type,
+        data.requested_amount || null,
+        data.effective_date || null,
+        RequestStatus.DRAFT,
+        1,
+        submissionDataJson,
+      ]
     );
 
     const requestId = result.insertId;
@@ -89,7 +114,12 @@ export async function createRequest(
       [requestId]
     );
 
-    const request = requests[0] as PTSRequest;
+    const request = requests[0] as any;
+
+    // Parse work_attributes back to object if it's a JSON string
+    if (request.work_attributes && typeof request.work_attributes === 'string') {
+      request.work_attributes = JSON.parse(request.work_attributes);
+    }
 
     return {
       ...request,
@@ -551,6 +581,91 @@ export async function returnRequest(
 }
 
 /**
+ * Batch approve multiple requests (DIRECTOR only - Step 4)
+ *
+ * @param actorId - User ID of the approver (must be DIRECTOR)
+ * @param params - Request IDs to approve and optional comment
+ * @returns Result containing successful and failed approvals
+ */
+export async function approveBatch(
+  actorId: number,
+  params: BatchApproveParams
+): Promise<BatchApproveResult> {
+  const { requestIds, comment } = params;
+  const result: BatchApproveResult = { success: [], failed: [] };
+
+  const connection = await getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    for (const requestId of requestIds) {
+      try {
+        // Get current request with row lock
+        const [rows] = await connection.query<RowDataPacket[]>(
+          'SELECT * FROM pts_requests WHERE request_id = ? FOR UPDATE',
+          [requestId]
+        );
+
+        if (rows.length === 0) {
+          result.failed.push({ id: requestId, reason: 'Request not found' });
+          continue;
+        }
+
+        const request = rows[0] as PTSRequest;
+
+        // Validate: must be at Step 4 (DIRECTOR step)
+        if (request.current_step !== 4) {
+          result.failed.push({
+            id: requestId,
+            reason: `Not at Step 4 (currently at Step ${request.current_step})`,
+          });
+          continue;
+        }
+
+        // Validate: must have PENDING status
+        if (request.status !== RequestStatus.PENDING) {
+          result.failed.push({
+            id: requestId,
+            reason: `Status is ${request.status}, not PENDING`,
+          });
+          continue;
+        }
+
+        // Log APPROVE action at step 4
+        await connection.execute(
+          `INSERT INTO pts_request_actions
+           (request_id, actor_id, step_no, action, comment)
+           VALUES (?, ?, ?, ?, ?)`,
+          [requestId, actorId, 4, ActionType.APPROVE, comment || null]
+        );
+
+        // Move to Step 5 (HEAD_FINANCE)
+        await connection.execute(
+          `UPDATE pts_requests
+           SET current_step = 5, updated_at = NOW()
+           WHERE request_id = ?`,
+          [requestId]
+        );
+
+        result.success.push(requestId);
+      } catch (err) {
+        console.error(`Error processing request ${requestId}:`, err);
+        result.failed.push({ id: requestId, reason: 'Database error' });
+      }
+    }
+
+    await connection.commit();
+    return result;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+/**
  * Helper function to get request details including attachments and actions
  *
  * @param requestId - Request ID
@@ -567,7 +682,12 @@ async function getRequestDetails(requestId: number): Promise<RequestWithDetails>
     throw new Error('Request not found');
   }
 
-  const request = requests[0] as PTSRequest;
+  const request = requests[0] as any;
+
+  // Parse work_attributes from JSON string to object if needed
+  if (request.work_attributes && typeof request.work_attributes === 'string') {
+    request.work_attributes = JSON.parse(request.work_attributes);
+  }
 
   // Get attachments
   const [attachments] = await query<RowDataPacket[]>(

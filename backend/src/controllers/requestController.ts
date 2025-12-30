@@ -12,6 +12,9 @@ import {
   RequestType,
   PTSRequest,
   RequestWithDetails,
+  PersonnelType,
+  CreateRequestDTO,
+  BatchApproveResult,
 } from '../types/request.types.js';
 import * as requestService from '../services/requestService.js';
 import { handleUploadError } from '../config/upload.js';
@@ -35,13 +38,32 @@ export async function createRequest(
       return;
     }
 
-    const { request_type, submission_data } = req.body;
+    const {
+      personnel_type,
+      position_number,
+      department_group,
+      main_duty,
+      work_attributes,
+      request_type,
+      requested_amount,
+      effective_date,
+      submission_data,
+    } = req.body;
 
     // Validate required fields
-    if (!request_type || !submission_data) {
+    if (!personnel_type || !request_type) {
       res.status(400).json({
         success: false,
-        error: 'Missing required fields: request_type and submission_data',
+        error: 'Missing required fields: personnel_type and request_type',
+      });
+      return;
+    }
+
+    // Validate personnel_type is valid enum value
+    if (!Object.values(PersonnelType).includes(personnel_type)) {
+      res.status(400).json({
+        success: false,
+        error: `Invalid personnel_type. Must be one of: ${Object.values(PersonnelType).join(', ')}`,
       });
       return;
     }
@@ -55,19 +77,50 @@ export async function createRequest(
       return;
     }
 
-    // Parse submission_data if it's a string
-    let parsedData;
-    try {
-      parsedData = typeof submission_data === 'string'
-        ? JSON.parse(submission_data)
-        : submission_data;
-    } catch (error) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid submission_data format. Must be valid JSON.',
-      });
-      return;
+    // Parse work_attributes if it's a string
+    let parsedWorkAttributes;
+    if (work_attributes) {
+      try {
+        parsedWorkAttributes = typeof work_attributes === 'string'
+          ? JSON.parse(work_attributes)
+          : work_attributes;
+      } catch (error) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid work_attributes format. Must be valid JSON.',
+        });
+        return;
+      }
     }
+
+    // Parse submission_data if it's a string (for backward compatibility)
+    let parsedSubmissionData;
+    if (submission_data) {
+      try {
+        parsedSubmissionData = typeof submission_data === 'string'
+          ? JSON.parse(submission_data)
+          : submission_data;
+      } catch (error) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid submission_data format. Must be valid JSON.',
+        });
+        return;
+      }
+    }
+
+    // Build DTO
+    const requestData: CreateRequestDTO = {
+      personnel_type: personnel_type as PersonnelType,
+      position_number,
+      department_group,
+      main_duty,
+      work_attributes: parsedWorkAttributes,
+      request_type: request_type as RequestType,
+      requested_amount: requested_amount ? parseFloat(requested_amount) : undefined,
+      effective_date,
+      submission_data: parsedSubmissionData,
+    };
 
     // Get uploaded files
     const files = req.files as Express.Multer.File[] | undefined;
@@ -75,8 +128,7 @@ export async function createRequest(
     // Create request
     const request = await requestService.createRequest(
       req.user.userId,
-      request_type as RequestType,
-      parsedData,
+      requestData,
       files
     );
 
@@ -476,6 +528,74 @@ export async function returnRequest(
     res.status(statusCode).json({
       success: false,
       error: error.message || 'An error occurred while returning the request',
+    });
+  }
+}
+
+/**
+ * Batch approve multiple requests (DIRECTOR only)
+ *
+ * @route POST /api/requests/batch-approve
+ * @access Protected (DIRECTOR only)
+ */
+export async function approveBatch(
+  req: Request,
+  res: Response<ApiResponse<BatchApproveResult>>
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        error: 'Unauthorized access',
+      });
+      return;
+    }
+
+    // Validate user is DIRECTOR
+    if (req.user.role !== 'DIRECTOR') {
+      res.status(403).json({
+        success: false,
+        error: 'Only DIRECTOR can perform batch approval',
+      });
+      return;
+    }
+
+    const { requestIds, comment } = req.body;
+
+    // Validate requestIds is array
+    if (!Array.isArray(requestIds) || requestIds.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: 'requestIds must be a non-empty array',
+      });
+      return;
+    }
+
+    // Validate all requestIds are numbers
+    const invalidIds = requestIds.filter((id) => typeof id !== 'number' || isNaN(id));
+    if (invalidIds.length > 0) {
+      res.status(400).json({
+        success: false,
+        error: 'All requestIds must be valid numbers',
+      });
+      return;
+    }
+
+    const result = await requestService.approveBatch(req.user.userId, {
+      requestIds,
+      comment,
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      message: `Batch approval completed: ${result.success.length} approved, ${result.failed.length} failed`,
+    });
+  } catch (error: any) {
+    console.error('Batch approval error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'An error occurred during batch approval',
     });
   }
 }

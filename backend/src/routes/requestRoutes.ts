@@ -20,6 +20,16 @@ const router = Router();
 router.use(protect);
 
 /**
+ * Batch Approval Route
+ * DIRECTOR only - must be before /:id routes to avoid conflicts
+ */
+router.post(
+  '/batch-approve',
+  restrictTo(UserRole.DIRECTOR),
+  requestController.approveBatch
+);
+
+/**
  * User Routes
  * Available to all authenticated users
  */

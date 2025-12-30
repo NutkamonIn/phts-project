@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import RequestForm from '@/components/requests/RequestForm';
-import { RequestType } from '@/types/request.types';
+import { CreateRequestDTO } from '@/types/request.types';
 import * as requestService from '@/services/requestService';
 
 export default function UserRequestPage() {
@@ -32,18 +32,13 @@ export default function UserRequestPage() {
   });
 
   const handleSubmit = async (
-    requestType: RequestType,
-    submissionData: any,
+    data: CreateRequestDTO,
     files: File[]
   ) => {
     setIsSubmitting(true);
     try {
       // Create and submit request
-      const request = await requestService.createRequest(
-        requestType,
-        submissionData,
-        files
-      );
+      const request = await requestService.createRequest(data, files);
 
       // Automatically submit the request (move from DRAFT to PENDING)
       await requestService.submitRequest(request.request_id);

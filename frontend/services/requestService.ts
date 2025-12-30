@@ -17,14 +17,24 @@ import { ApiResponse } from '@/types/auth';
  * Create a new PTS request
  */
 export async function createRequest(
-  requestType: RequestType,
-  submissionData: any,
+  data: CreateRequestDTO,
   files?: File[]
 ): Promise<RequestWithDetails> {
   try {
     const formData = new FormData();
-    formData.append('request_type', requestType);
-    formData.append('submission_data', JSON.stringify(submissionData));
+
+    // Add all form fields
+    formData.append('personnel_type', data.personnel_type);
+    formData.append('position_number', data.position_number);
+    if (data.department_group) formData.append('department_group', data.department_group);
+    if (data.main_duty) formData.append('main_duty', data.main_duty);
+
+    // Serialize work_attributes as JSON string
+    formData.append('work_attributes', JSON.stringify(data.work_attributes));
+
+    formData.append('request_type', data.request_type);
+    if (data.requested_amount) formData.append('requested_amount', data.requested_amount.toString());
+    if (data.effective_date) formData.append('effective_date', data.effective_date);
 
     // Append files if provided
     if (files && files.length > 0) {

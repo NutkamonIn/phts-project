@@ -25,18 +25,48 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 -- ============================================
 -- Table: pts_requests
--- Description: Main table storing PTS request headers
--- Purpose: Tracks request lifecycle, current workflow step, and submission data
+-- Description: Main table storing PTS request headers (Digital version of official P.T.S. paper form)
+-- Purpose: Tracks request lifecycle, current workflow step, and official form data
+-- Updated: 2025-12-31 - Added fields to match official Thai P.T.S. government form
 -- ============================================
 CREATE TABLE IF NOT EXISTS `pts_requests` (
   `request_id` INT NOT NULL AUTO_INCREMENT COMMENT 'Primary key for requests table',
   `user_id` INT NOT NULL COMMENT 'Foreign key to users.user_id - the requester',
+
+  -- Personnel Information (From Official Form)
+  `personnel_type` ENUM(
+    'CIVIL_SERVANT',
+    'GOV_EMPLOYEE',
+    'PH_EMPLOYEE',
+    'TEMP_EMPLOYEE'
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'CIVIL_SERVANT'
+    COMMENT 'ประเภทบุคลากร: ข้าราชการ/พนักงานราชการ/พกส./ลูกจ้าง',
+  `position_number` VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
+    COMMENT 'เลขที่ตำแหน่ง - Government position ID',
+  `department_group` VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
+    COMMENT 'กลุ่มงาน/แผนก - Department/work group',
+  `main_duty` VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL
+    COMMENT 'หน้าที่หลัก - Primary job responsibility',
+
+  -- Work Attributes (4 Checkboxes on Official Form)
+  `work_attributes` JSON NULL
+    COMMENT 'ลักษณะงาน: {operation, planning, coordination, service}',
+
+  -- Request Details
   `request_type` ENUM(
     'NEW_ENTRY',
-    'EDIT_INFO',
-    'RATE_CHANGE'
-  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Type of PTS request being submitted',
-  `current_step` INT NOT NULL DEFAULT 1 COMMENT 'Current workflow step (1-5), 6 when completed',
+    'EDIT_INFO_SAME_RATE',
+    'EDIT_INFO_NEW_RATE'
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL
+    COMMENT 'ประเภทคำขอ: ขอใหม่/แก้ไขอัตราเดิม/แก้ไขอัตราใหม่',
+  `requested_amount` DECIMAL(10,2) NULL
+    COMMENT 'ยอดเงินที่ขอ - Amount requested in the form',
+  `effective_date` DATE NULL
+    COMMENT 'วันที่มีผล - Date when changes take effect',
+
+  -- Workflow Status
+  `current_step` INT NOT NULL DEFAULT 1
+    COMMENT 'ขั้นตอนปัจจุบัน - Current workflow step (1-6)',
   `status` ENUM(
     'DRAFT',
     'PENDING',
@@ -44,20 +74,46 @@ CREATE TABLE IF NOT EXISTS `pts_requests` (
     'REJECTED',
     'CANCELLED',
     'RETURNED'
-  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DRAFT' COMMENT 'Current status of the request',
-  `submission_data` JSON NULL COMMENT 'Snapshot of form data at submission (position, salary, requested_rate, work_attributes)',
-  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Timestamp when request was created',
-  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Timestamp when request was last updated',
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DRAFT'
+    COMMENT 'สถานะคำขอ - Current status of the request',
+
+  -- Legacy/Archive Field (Keep for backward compatibility)
+  `submission_data` JSON NULL
+    COMMENT 'ข้อมูลเพิ่มเติม - Additional data (JSON) for backward compatibility',
+
+  -- Timestamps
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    COMMENT 'Timestamp when request was created',
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    COMMENT 'Timestamp when request was last updated',
+
+  -- Primary Key
   PRIMARY KEY (`request_id`) USING BTREE,
-  INDEX `idx_pts_requests_user_id` (`user_id` ASC) USING BTREE COMMENT 'Index for querying requests by user',
-  INDEX `idx_pts_requests_status_step` (`status` ASC, `current_step` ASC) USING BTREE COMMENT 'Composite index for filtering by status and current step',
-  INDEX `idx_pts_requests_created_at` (`created_at` DESC) USING BTREE COMMENT 'Index for sorting by creation date',
-  CONSTRAINT `fk_pts_requests_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE RESTRICT ON UPDATE CASCADE
+
+  -- Foreign Keys
+  CONSTRAINT `fk_pts_requests_user_id` FOREIGN KEY (`user_id`)
+    REFERENCES `users` (`user_id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+
+  -- Indexes
+  INDEX `idx_pts_requests_user_id` (`user_id` ASC) USING BTREE
+    COMMENT 'Index for querying requests by user',
+  INDEX `idx_pts_requests_status` (`status` ASC) USING BTREE
+    COMMENT 'Index for filtering by status',
+  INDEX `idx_pts_requests_current_step` (`current_step` ASC) USING BTREE
+    COMMENT 'Index for filtering by workflow step',
+  INDEX `idx_pts_requests_status_step` (`status` ASC, `current_step` ASC) USING BTREE
+    COMMENT 'Composite index for filtering by status and current step',
+  INDEX `idx_pts_requests_personnel_type` (`personnel_type` ASC) USING BTREE
+    COMMENT 'Index for filtering by personnel type',
+  INDEX `idx_pts_requests_effective_date` (`effective_date` ASC) USING BTREE
+    COMMENT 'Index for filtering by effective date',
+  INDEX `idx_pts_requests_created_at` (`created_at` DESC) USING BTREE
+    COMMENT 'Index for sorting by creation date'
 ) ENGINE = InnoDB
   AUTO_INCREMENT = 1
   CHARACTER SET = utf8mb4
   COLLATE = utf8mb4_unicode_ci
-  COMMENT = 'PTS request header table - stores main request information and workflow state'
+  COMMENT = 'P.T.S. Request Forms - Digital version of official paper form'
   ROW_FORMAT = Dynamic;
 
 -- ============================================
@@ -178,18 +234,54 @@ SET FOREIGN_KEY_CHECKS = 1;
  *   - Triggers master data update (Part 3)
  *   - Terminal state
  *
- * Request Types:
- * ==============
+ * Request Types (Matches Official Form):
+ * ========================================
  *
- * NEW_ENTRY
- *   - New employee entering PTS system
+ * NEW_ENTRY (ขอรับค่าตอบแทนใหม่)
+ *   - First time application for PTS allowance
  *   - Requires: LICENSE, DIPLOMA, ORDER_DOC
  *
- * EDIT_INFO
- *   - Update existing PTS information
+ * EDIT_INFO_SAME_RATE (แก้ไขข้อมูล - อัตราเดิม)
+ *   - Update personal/position information, keep same PTS rate
  *   - Requires: Supporting documents as needed
  *
- * RATE_CHANGE
- *   - Request to change PTS rate
- *   - Requires: Justification documents (ORDER_DOC)
+ * EDIT_INFO_NEW_RATE (แก้ไขข้อมูล - อัตราใหม่)
+ *   - Update information with new PTS rate change
+ *   - Requires: Justification documents (ORDER_DOC, LICENSE updates, etc.)
+ *
+ * Personnel Types (ประเภทบุคลากร):
+ * ==================================
+ *
+ * CIVIL_SERVANT (ข้าราชการ)
+ *   - Government civil servants
+ *
+ * GOV_EMPLOYEE (พนักงานราชการ)
+ *   - Government employees (non-civil servant)
+ *
+ * PH_EMPLOYEE (พนักงานกระทรวงสาธารณสุข - พกส.)
+ *   - Ministry of Public Health employees
+ *
+ * TEMP_EMPLOYEE (ลูกจ้างชั่วคราว)
+ *   - Temporary employees
+ *
+ * Work Attributes JSON Structure (ลักษณะงาน):
+ * =============================================
+ *
+ * {
+ *   "operation": true,      // ปฏิบัติการ - Operational work
+ *   "planning": false,      // วางแผน - Planning work
+ *   "coordination": true,   // ประสานงาน - Coordination work
+ *   "service": true         // บริการ - Service/patient care work
+ * }
+ *
+ * New Fields Added (2025-12-31):
+ * ===============================
+ *
+ * - personnel_type: Employee classification required on official form
+ * - position_number: Government position ID (เลขที่ตำแหน่ง) - Critical for HR tracking
+ * - department_group: Department/work unit (กลุ่มงาน/แผนก)
+ * - main_duty: Primary job responsibility (หน้าที่หลัก)
+ * - work_attributes: JSON object for 4 work attribute checkboxes
+ * - requested_amount: Amount requested on the form (ยอดเงินที่ขอ)
+ * - effective_date: Date when changes become effective (วันที่มีผล)
  */

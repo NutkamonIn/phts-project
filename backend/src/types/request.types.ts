@@ -7,12 +7,22 @@
  */
 
 /**
+ * Personnel type classification for Thai hospital staff
+ */
+export enum PersonnelType {
+  CIVIL_SERVANT = 'CIVIL_SERVANT',
+  GOV_EMPLOYEE = 'GOV_EMPLOYEE',
+  PH_EMPLOYEE = 'PH_EMPLOYEE',
+  TEMP_EMPLOYEE = 'TEMP_EMPLOYEE',
+}
+
+/**
  * Request types for different PTS operations
  */
 export enum RequestType {
   NEW_ENTRY = 'NEW_ENTRY',
-  EDIT_INFO = 'EDIT_INFO',
-  RATE_CHANGE = 'RATE_CHANGE',
+  EDIT_INFO_SAME_RATE = 'EDIT_INFO_SAME_RATE',
+  EDIT_INFO_NEW_RATE = 'EDIT_INFO_NEW_RATE',
 }
 
 /**
@@ -72,15 +82,41 @@ export const ROLE_STEP_MAP: Record<string, number> = {
 };
 
 /**
+ * Work attributes interface for P.T.S. form
+ * Represents the 4 checkboxes for work characteristics
+ */
+export interface WorkAttributes {
+  operation: boolean;      // ปฏิบัติการ
+  planning: boolean;       // วางแผน
+  coordination: boolean;   // ประสานงาน
+  service: boolean;        // บริการ
+}
+
+/**
  * PTS Request entity from database
  */
 export interface PTSRequest {
   request_id: number;
   user_id: number;
+
+  // Personnel Info (new fields from P.T.S. form)
+  personnel_type: PersonnelType;
+  position_number: string | null;
+  department_group: string | null;
+  main_duty: string | null;
+  work_attributes: WorkAttributes | null;
+
+  // Request Details
   request_type: RequestType;
+  requested_amount: number | null;
+  effective_date: Date | null;
+
+  // Workflow
   status: RequestStatus;
   current_step: number;
   submission_data: any; // JSON data specific to request type
+
+  // Timestamps
   created_at: Date;
   updated_at: Date;
   submitted_at?: Date | null;
@@ -146,8 +182,20 @@ export interface RequestActionWithActor extends RequestAction {
  * DTO for creating a new request
  */
 export interface CreateRequestDTO {
+  // Personnel Info
+  personnel_type: PersonnelType;
+  position_number?: string;
+  department_group?: string;
+  main_duty?: string;
+  work_attributes?: WorkAttributes;
+
+  // Request Details
   request_type: RequestType;
-  submission_data: any;
+  requested_amount?: number;
+  effective_date?: string; // ISO date string from frontend
+
+  // Legacy field for backward compatibility
+  submission_data?: any;
 }
 
 /**
@@ -201,4 +249,20 @@ export interface PaginatedResult<T> {
     offset: number;
     hasMore: boolean;
   };
+}
+
+/**
+ * DTO for batch approval (DIRECTOR only)
+ */
+export interface BatchApproveParams {
+  requestIds: number[];
+  comment?: string;
+}
+
+/**
+ * Result of batch approval operation
+ */
+export interface BatchApproveResult {
+  success: number[];
+  failed: { id: number; reason: string }[];
 }

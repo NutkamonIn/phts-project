@@ -6,12 +6,32 @@
  */
 
 /**
+ * Personnel type classification for Thai hospital staff
+ */
+export enum PersonnelType {
+  CIVIL_SERVANT = 'CIVIL_SERVANT',
+  GOV_EMPLOYEE = 'GOV_EMPLOYEE',
+  PH_EMPLOYEE = 'PH_EMPLOYEE',
+  TEMP_EMPLOYEE = 'TEMP_EMPLOYEE',
+}
+
+/**
+ * Personnel Type Labels (Thai)
+ */
+export const PERSONNEL_TYPE_LABELS: Record<PersonnelType, string> = {
+  [PersonnelType.CIVIL_SERVANT]: 'ข้าราชการ',
+  [PersonnelType.GOV_EMPLOYEE]: 'พนักงานราชการ',
+  [PersonnelType.PH_EMPLOYEE]: 'พนักงานกระทรวงสาธารณสุข (พกส.)',
+  [PersonnelType.TEMP_EMPLOYEE]: 'ลูกจ้างชั่วคราว',
+};
+
+/**
  * Request types for different PTS operations
  */
 export enum RequestType {
   NEW_ENTRY = 'NEW_ENTRY',
-  EDIT_INFO = 'EDIT_INFO',
-  RATE_CHANGE = 'RATE_CHANGE',
+  EDIT_INFO_SAME_RATE = 'EDIT_INFO_SAME_RATE',
+  EDIT_INFO_NEW_RATE = 'EDIT_INFO_NEW_RATE',
 }
 
 /**
@@ -69,15 +89,51 @@ export const ROLE_STEP_MAP: Record<string, number> = {
 };
 
 /**
+ * Work attributes interface for P.T.S. form
+ * Represents the 4 checkboxes for work characteristics
+ */
+export interface WorkAttributes {
+  operation: boolean;      // ปฏิบัติการ
+  planning: boolean;       // วางแผน
+  coordination: boolean;   // ประสานงาน
+  service: boolean;        // บริการ
+}
+
+/**
+ * Work Attribute Labels (Thai)
+ */
+export const WORK_ATTRIBUTE_LABELS = {
+  operation: 'ปฏิบัติการ',
+  planning: 'วางแผน',
+  coordination: 'ประสานงาน',
+  service: 'บริการ',
+};
+
+/**
  * PTS Request entity
  */
 export interface PTSRequest {
   request_id: number;
   user_id: number;
+
+  // Personnel Info (new fields from P.T.S. form)
+  personnel_type: PersonnelType;
+  position_number: string | null;
+  department_group: string | null;
+  main_duty: string | null;
+  work_attributes: WorkAttributes | null;
+
+  // Request Details
   request_type: RequestType;
+  requested_amount: number | null;
+  effective_date: string | null;
+
+  // Workflow
   status: RequestStatus;
   current_step: number;
   submission_data: any;
+
+  // Timestamps
   created_at: Date | string;
   updated_at: Date | string;
   submitted_at: Date | string | null;
@@ -137,9 +193,17 @@ export interface RequestActionWithActor extends RequestAction {
  * DTO for creating a new request
  */
 export interface CreateRequestDTO {
+  // Personnel Info
+  personnel_type: PersonnelType;
+  position_number: string;
+  department_group?: string;
+  main_duty?: string;
+  work_attributes: WorkAttributes;
+
+  // Request Details
   request_type: RequestType;
-  submission_data: any;
-  files?: File[];
+  requested_amount?: number;
+  effective_date?: string;
 }
 
 /**
@@ -147,8 +211,8 @@ export interface CreateRequestDTO {
  */
 export const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
   [RequestType.NEW_ENTRY]: 'ขอรับค่าตอบแทนใหม่',
-  [RequestType.EDIT_INFO]: 'แก้ไขข้อมูล',
-  [RequestType.RATE_CHANGE]: 'เปลี่ยนแปลงอัตรา',
+  [RequestType.EDIT_INFO_SAME_RATE]: 'แก้ไขข้อมูล (อัตราเดิม)',
+  [RequestType.EDIT_INFO_NEW_RATE]: 'แก้ไขข้อมูล (อัตราใหม่)',
 };
 
 /**

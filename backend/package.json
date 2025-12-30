@@ -9,6 +9,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "seed:users": "tsx src/scripts/seed_users.ts",
+    "migrate:requests": "tsx src/scripts/migrate_requests.ts",
+    "migrate:update-schema": "tsx src/scripts/update_requests_schema.ts",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.{ts,js,json}\"",
     "test": "jest"

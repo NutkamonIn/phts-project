@@ -1,7 +1,7 @@
 /**
  * PHTS System - Request Form Component
  *
- * Form for creating new PTS requests with auto-filled user data
+ * Form for creating new PTS requests matching official Thai government P.T.S. form structure
  */
 
 'use client';
@@ -10,7 +10,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Card,
   CardContent,
-  Grid,
   TextField,
   Button,
   Typography,
@@ -24,15 +23,26 @@ import {
   Alert,
   Box,
   Stack,
+  Checkbox,
+  FormGroup,
+  InputAdornment,
+  FormHelperText,
 } from '@mui/material';
-import { Send, Cancel } from '@mui/icons-material';
-import { RequestType, REQUEST_TYPE_LABELS } from '@/types/request.types';
+import { Send, RestartAlt } from '@mui/icons-material';
+import {
+  PersonnelType,
+  PERSONNEL_TYPE_LABELS,
+  RequestType,
+  REQUEST_TYPE_LABELS,
+  WorkAttributes,
+  WORK_ATTRIBUTE_LABELS,
+  CreateRequestDTO,
+} from '@/types/request.types';
 import FileUploadArea from './FileUploadArea';
 import { AuthService } from '@/services/authService';
-import { apiClient } from '@/lib/axios';
 
 interface RequestFormProps {
-  onSubmit: (requestType: RequestType, submissionData: any, files: File[]) => Promise<void>;
+  onSubmit: (data: CreateRequestDTO, files: File[]) => Promise<void>;
   onCancel?: () => void;
   isSubmitting?: boolean;
 }
@@ -52,10 +62,25 @@ export default function RequestForm({
 }: RequestFormProps) {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
-  const [requestType, setRequestType] = useState<RequestType>(RequestType.NEW_ENTRY);
-  const [notes, setNotes] = useState('');
+
+  // Form fields
+  const [personnelType, setPersonnelType] = useState<PersonnelType | ''>('');
+  const [positionNumber, setPositionNumber] = useState('');
+  const [departmentGroup, setDepartmentGroup] = useState('');
+  const [mainDuty, setMainDuty] = useState('');
+  const [workAttributes, setWorkAttributes] = useState<WorkAttributes>({
+    operation: false,
+    planning: false,
+    coordination: false,
+    service: false,
+  });
+  const [requestType, setRequestType] = useState<RequestType | ''>('');
+  const [requestedAmount, setRequestedAmount] = useState('');
+  const [effectiveDate, setEffectiveDate] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Fetch user info on mount
   useEffect(() => {
@@ -87,43 +112,87 @@ export default function RequestForm({
     fetchUserInfo();
   }, []);
 
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    // Personnel type is required
+    if (!personnelType) {
+      errors.personnelType = 'กรุณาเลือกประเภทบุคลากร';
+    }
+
+    // Position number is required
+    if (!positionNumber.trim()) {
+      errors.positionNumber = 'กรุณากรอกเลขที่ตำแหน่ง';
+    }
+
+    // Work attributes - at least one must be checked
+    const hasWorkAttribute = Object.values(workAttributes).some(val => val === true);
+    if (!hasWorkAttribute) {
+      errors.workAttributes = 'กรุณาเลือกลักษณะงานอย่างน้อย 1 ข้อ';
+    }
+
+    // Request type is required
+    if (!requestType) {
+      errors.requestType = 'กรุณาเลือกประเภทคำขอ';
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setValidationErrors({});
 
-    // Validate
-    if (!requestType) {
-      setError('กรุณาเลือกประเภทคำขอ');
-      return;
-    }
-
-    if (notes.trim().length === 0) {
-      setError('กรุณากรอกรายละเอียดคำขอ');
-      return;
-    }
-
-    if (files.length === 0) {
-      setError('กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์');
+    // Validate form
+    if (!validateForm()) {
+      setError('กรุณากรอกข้อมูลให้ครบถ้วน');
       return;
     }
 
     try {
-      const submissionData = {
-        notes: notes.trim(),
-        userInfo,
+      const formData: CreateRequestDTO = {
+        personnel_type: personnelType as PersonnelType,
+        position_number: positionNumber.trim(),
+        department_group: departmentGroup.trim() || undefined,
+        main_duty: mainDuty.trim() || undefined,
+        work_attributes: workAttributes,
+        request_type: requestType as RequestType,
+        requested_amount: requestedAmount ? parseFloat(requestedAmount) : undefined,
+        effective_date: effectiveDate || undefined,
       };
 
-      await onSubmit(requestType, submissionData, files);
+      await onSubmit(formData, files);
     } catch (err: any) {
       setError(err.message || 'เกิดข้อผิดพลาดในการส่งคำขอ');
     }
   };
 
   const handleReset = () => {
-    setRequestType(RequestType.NEW_ENTRY);
-    setNotes('');
+    setPersonnelType('');
+    setPositionNumber('');
+    setDepartmentGroup('');
+    setMainDuty('');
+    setWorkAttributes({
+      operation: false,
+      planning: false,
+      coordination: false,
+      service: false,
+    });
+    setRequestType('');
+    setRequestedAmount('');
+    setEffectiveDate('');
     setFiles([]);
     setError(null);
+    setValidationErrors({});
+  };
+
+  const handleWorkAttributeChange = (key: keyof WorkAttributes) => {
+    setWorkAttributes(prev => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
   };
 
   if (loadingUser) {
@@ -151,14 +220,19 @@ export default function RequestForm({
   }
 
   return (
-    <Card>
-      <CardContent>
+    <Card elevation={2}>
+      <CardContent sx={{ p: 4 }}>
         <form onSubmit={handleSubmit}>
-          <Stack spacing={3}>
+          <Stack spacing={4}>
             {/* Form Title */}
-            <Typography variant="h5" fontWeight={600} color="primary">
-              แบบฟอร์มยื่นคำขอรับค่าตอบแทน พ.ต.ส.
-            </Typography>
+            <Box>
+              <Typography variant="h4" fontWeight={700} color="primary" gutterBottom>
+                แบบฟอร์มขอรับค่าตอบแทน พ.ต.ส.
+              </Typography>
+              <Typography variant="subtitle1" color="text.secondary">
+                P.T.S. Allowance Request Form
+              </Typography>
+            </Box>
 
             {/* Error Alert */}
             {error && (
@@ -167,120 +241,244 @@ export default function RequestForm({
               </Alert>
             )}
 
-            {/* Section 1: User Info (Auto-filled, Read-only) */}
-            <Box>
-              <Typography variant="h6" gutterBottom fontWeight={600}>
-                1. ข้อมูลผู้ยื่นคำขอ
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="เลขบัตรประชาชน"
-                    value={userInfo.citizenId}
-                    disabled
-                    InputProps={{ readOnly: true }}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="ชื่อ-นามสกุล"
-                    value={userInfo.name}
-                    disabled
-                    InputProps={{ readOnly: true }}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="ตำแหน่ง"
-                    value={userInfo.position}
-                    disabled
-                    InputProps={{ readOnly: true }}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    fullWidth
-                    label="แผนก/หน่วยงาน"
-                    value={userInfo.department}
-                    disabled
-                    InputProps={{ readOnly: true }}
-                  />
-                </Grid>
-                {userInfo.ptsRate !== undefined && (
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <TextField
-                      fullWidth
-                      label="อัตรา พ.ต.ส. ปัจจุบัน"
-                      value={`${userInfo.ptsRate.toLocaleString()} บาท`}
-                      disabled
-                      InputProps={{ readOnly: true }}
-                    />
-                  </Grid>
-                )}
-              </Grid>
-            </Box>
-
             <Divider />
 
-            {/* Section 2: Request Type */}
+            {/* Section 1: Personnel Type */}
             <Box>
-              <FormControl component="fieldset">
-                <FormLabel component="legend">
-                  <Typography variant="h6" fontWeight={600} color="text.primary">
-                    2. ประเภทคำขอ *
-                  </Typography>
-                </FormLabel>
+              <Typography
+                variant="h6"
+                gutterBottom
+                fontWeight={600}
+                sx={{ borderBottom: '2px solid', borderColor: 'primary.main', pb: 1, mb: 2 }}
+              >
+                ส่วนที่ 1: ประเภทบุคลากร
+              </Typography>
+              <FormControl component="fieldset" error={!!validationErrors.personnelType}>
                 <RadioGroup
-                  value={requestType}
-                  onChange={(e) => setRequestType(e.target.value as RequestType)}
-                  sx={{ mt: 1 }}
+                  row
+                  value={personnelType}
+                  onChange={(e) => setPersonnelType(e.target.value as PersonnelType)}
                 >
-                  <FormControlLabel
-                    value={RequestType.NEW_ENTRY}
-                    control={<Radio />}
-                    label={REQUEST_TYPE_LABELS[RequestType.NEW_ENTRY]}
-                  />
-                  <FormControlLabel
-                    value={RequestType.EDIT_INFO}
-                    control={<Radio />}
-                    label={REQUEST_TYPE_LABELS[RequestType.EDIT_INFO]}
-                  />
-                  <FormControlLabel
-                    value={RequestType.RATE_CHANGE}
-                    control={<Radio />}
-                    label={REQUEST_TYPE_LABELS[RequestType.RATE_CHANGE]}
-                  />
+                  {Object.entries(PERSONNEL_TYPE_LABELS).map(([key, label]) => (
+                    <FormControlLabel
+                      key={key}
+                      value={key}
+                      control={<Radio />}
+                      label={label}
+                      disabled={isSubmitting}
+                    />
+                  ))}
                 </RadioGroup>
+                {validationErrors.personnelType && (
+                  <FormHelperText>{validationErrors.personnelType}</FormHelperText>
+                )}
               </FormControl>
             </Box>
 
             <Divider />
 
-            {/* Section 3: Additional Information */}
+            {/* Section 2: Personal Information */}
             <Box>
-              <Typography variant="h6" gutterBottom fontWeight={600}>
-                3. รายละเอียด / เหตุผลในการยื่นคำขอ *
+              <Typography
+                variant="h6"
+                gutterBottom
+                fontWeight={600}
+                sx={{ borderBottom: '2px solid', borderColor: 'primary.main', pb: 1, mb: 2 }}
+              >
+                ส่วนที่ 2: ข้อมูลส่วนตัว
               </Typography>
-              <TextField
-                fullWidth
-                multiline
-                rows={4}
-                placeholder="กรุณาระบุรายละเอียดหรือเหตุผลในการยื่นคำขอ..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                disabled={isSubmitting}
-              />
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' },
+                  gap: 3,
+                }}
+              >
+                <TextField
+                  fullWidth
+                  label="ชื่อ-นามสกุล"
+                  value={userInfo.name}
+                  disabled
+                  slotProps={{
+                    input: {
+                      readOnly: true,
+                    },
+                  }}
+                  sx={{ bgcolor: 'grey.50' }}
+                />
+                <TextField
+                  fullWidth
+                  label="ตำแหน่ง"
+                  value={userInfo.position}
+                  disabled
+                  slotProps={{
+                    input: {
+                      readOnly: true,
+                    },
+                  }}
+                  sx={{ bgcolor: 'grey.50' }}
+                />
+                <TextField
+                  fullWidth
+                  required
+                  label="เลขที่ตำแหน่ง"
+                  value={positionNumber}
+                  onChange={(e) => setPositionNumber(e.target.value)}
+                  disabled={isSubmitting}
+                  error={!!validationErrors.positionNumber}
+                  helperText={validationErrors.positionNumber}
+                  placeholder="กรอกเลขที่ตำแหน่ง"
+                />
+                <TextField
+                  fullWidth
+                  label="กลุ่มงาน/แผนก"
+                  value={departmentGroup}
+                  onChange={(e) => setDepartmentGroup(e.target.value)}
+                  disabled={isSubmitting}
+                  placeholder="กรอกกลุ่มงาน/แผนก (ถ้ามี)"
+                />
+                <Box sx={{ gridColumn: { xs: '1', md: '1 / -1' } }}>
+                  <TextField
+                    fullWidth
+                    label="หน้าที่หลัก"
+                    value={mainDuty}
+                    onChange={(e) => setMainDuty(e.target.value)}
+                    disabled={isSubmitting}
+                    placeholder="ระบุหน้าที่หลักในการปฏิบัติงาน"
+                    multiline
+                    rows={2}
+                  />
+                </Box>
+              </Box>
             </Box>
 
             <Divider />
 
-            {/* Section 4: File Upload */}
+            {/* Section 3: Work Attributes */}
             <Box>
-              <Typography variant="h6" gutterBottom fontWeight={600}>
-                4. เอกสารแนบ *
+              <Typography
+                variant="h6"
+                gutterBottom
+                fontWeight={600}
+                sx={{ borderBottom: '2px solid', borderColor: 'primary.main', pb: 1, mb: 2 }}
+              >
+                ส่วนที่ 3: ลักษณะงาน (เลือกอย่างน้อย 1 ข้อ)
+              </Typography>
+              <FormControl component="fieldset" error={!!validationErrors.workAttributes}>
+                <FormGroup row>
+                  {Object.entries(WORK_ATTRIBUTE_LABELS).map(([key, label]) => (
+                    <FormControlLabel
+                      key={key}
+                      control={
+                        <Checkbox
+                          checked={workAttributes[key as keyof WorkAttributes]}
+                          onChange={() => handleWorkAttributeChange(key as keyof WorkAttributes)}
+                          disabled={isSubmitting}
+                        />
+                      }
+                      label={label}
+                    />
+                  ))}
+                </FormGroup>
+                {validationErrors.workAttributes && (
+                  <FormHelperText>{validationErrors.workAttributes}</FormHelperText>
+                )}
+              </FormControl>
+            </Box>
+
+            <Divider />
+
+            {/* Section 4: Request Type */}
+            <Box>
+              <Typography
+                variant="h6"
+                gutterBottom
+                fontWeight={600}
+                sx={{ borderBottom: '2px solid', borderColor: 'primary.main', pb: 1, mb: 2 }}
+              >
+                ส่วนที่ 4: ประเภทคำขอ
+              </Typography>
+              <FormControl component="fieldset" error={!!validationErrors.requestType}>
+                <RadioGroup
+                  value={requestType}
+                  onChange={(e) => setRequestType(e.target.value as RequestType)}
+                >
+                  {Object.entries(REQUEST_TYPE_LABELS).map(([key, label]) => (
+                    <FormControlLabel
+                      key={key}
+                      value={key}
+                      control={<Radio />}
+                      label={label}
+                      disabled={isSubmitting}
+                    />
+                  ))}
+                </RadioGroup>
+                {validationErrors.requestType && (
+                  <FormHelperText>{validationErrors.requestType}</FormHelperText>
+                )}
+              </FormControl>
+            </Box>
+
+            <Divider />
+
+            {/* Section 5: Request Details */}
+            <Box>
+              <Typography
+                variant="h6"
+                gutterBottom
+                fontWeight={600}
+                sx={{ borderBottom: '2px solid', borderColor: 'primary.main', pb: 1, mb: 2 }}
+              >
+                ส่วนที่ 5: รายละเอียดการขอ
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' },
+                  gap: 3,
+                }}
+              >
+                <TextField
+                  fullWidth
+                  label="ยอดเงินที่ขอ"
+                  type="number"
+                  value={requestedAmount}
+                  onChange={(e) => setRequestedAmount(e.target.value)}
+                  disabled={isSubmitting}
+                  placeholder="กรอกจำนวนเงิน"
+                  slotProps={{
+                    input: {
+                      endAdornment: <InputAdornment position="end">บาท</InputAdornment>,
+                    },
+                  }}
+                />
+                <TextField
+                  fullWidth
+                  label="วันที่มีผล"
+                  type="date"
+                  value={effectiveDate}
+                  onChange={(e) => setEffectiveDate(e.target.value)}
+                  disabled={isSubmitting}
+                  slotProps={{
+                    inputLabel: {
+                      shrink: true,
+                    },
+                  }}
+                />
+              </Box>
+            </Box>
+
+            <Divider />
+
+            {/* Section 6: File Attachments */}
+            <Box>
+              <Typography
+                variant="h6"
+                gutterBottom
+                fontWeight={600}
+                sx={{ borderBottom: '2px solid', borderColor: 'primary.main', pb: 1, mb: 2 }}
+              >
+                ส่วนที่ 6: เอกสารแนบ
               </Typography>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 แนบเอกสารประกอบคำขอ เช่น ใบประกอบวิชาชีพ, ใบปริญญา, คำสั่ง, ฯลฯ
@@ -289,36 +487,52 @@ export default function RequestForm({
                 files={files}
                 onChange={setFiles}
                 maxFiles={5}
-                maxSizeMB={5}
+                maxSizeMB={10}
               />
             </Box>
+
+            <Divider />
+
+            {/* Warning Alert */}
+            <Alert severity="warning" icon="⚠️">
+              <Typography variant="body2" fontWeight={600} gutterBottom>
+                คำเตือน
+              </Typography>
+              <Typography variant="body2">
+                กรณีเปลี่ยนแปลงการปฏิบัติงาน หากข้อมูลไม่ตรงตามความเป็นจริง
+                อาจมีความผิดตามประมวลกฎหมายอาญา มาตรา 137 หรือมาตรา 267
+              </Typography>
+            </Alert>
 
             {/* Action Buttons */}
             <Stack direction="row" spacing={2} justifyContent="flex-end">
               {onCancel && (
                 <Button
                   variant="outlined"
-                  startIcon={<Cancel />}
                   onClick={onCancel}
                   disabled={isSubmitting}
+                  size="large"
                 >
                   ยกเลิก
                 </Button>
               )}
               <Button
                 variant="outlined"
+                startIcon={<RestartAlt />}
                 onClick={handleReset}
                 disabled={isSubmitting}
+                size="large"
               >
                 ล้างฟอร์ม
               </Button>
               <Button
                 type="submit"
                 variant="contained"
-                startIcon={isSubmitting ? <CircularProgress size={20} /> : <Send />}
+                startIcon={isSubmitting ? <CircularProgress size={20} color="inherit" /> : <Send />}
                 disabled={isSubmitting}
+                size="large"
               >
-                {isSubmitting ? 'กำลังส่งคำขอ...' : 'ส่งคำขอ'}
+                {isSubmitting ? 'กำลังยื่นคำขอ...' : 'ยื่นคำขอ'}
               </Button>
             </Stack>
           </Stack>
