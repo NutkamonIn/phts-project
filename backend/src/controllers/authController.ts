@@ -24,15 +24,26 @@ import { query } from '../config/database.js';
 dotenv.config();
 
 /**
- * Validates Thai Citizen ID format (13 digits)
+ * Validates Thai Citizen ID format and checksum (Mod 11)
  *
  * @param citizenId - The citizen ID to validate
  * @returns true if valid, false otherwise
  */
 function isValidCitizenId(citizenId: string): boolean {
-  // Check if it's exactly 13 digits
   const regex = /^\d{13}$/;
-  return regex.test(citizenId);
+  if (!regex.test(citizenId)) {
+    return false;
+  }
+
+  // Checksum calculation: (13..2 multipliers) then mod 11
+  const digits = citizenId.split('').map((d) => parseInt(d, 10));
+  const sum = digits.slice(0, 12).reduce((acc, digit, idx) => {
+    const weight = 13 - idx;
+    return acc + digit * weight;
+  }, 0);
+  const checksum = (11 - (sum % 11)) % 10;
+
+  return checksum === digits[12];
 }
 
 /**
@@ -112,7 +123,7 @@ export async function login(
     if (!isValidCitizenId(citizen_id)) {
       res.status(400).json({
         success: false,
-        error: 'Invalid citizen ID format. Must be 13 digits.',
+        error: 'Invalid citizen ID. Must be 13 digits with a valid checksum.',
       });
       return;
     }

@@ -422,6 +422,10 @@ export async function approveRequest(
     );
     const signatureSnapshot = sigRows.length ? (sigRows[0] as any).signature_image : null;
 
+    if (!signatureSnapshot) {
+      throw new Error('Approver signature is required. Please set your signature before approving.');
+    }
+
     await connection.execute(
       `INSERT INTO pts_request_actions
        (request_id, actor_id, step_no, action, comment, signature_snapshot)
@@ -643,6 +647,10 @@ export async function approveBatch(
     );
     const signatureSnapshot = sigRows.length ? (sigRows[0] as any).signature_image : null;
 
+    if (!signatureSnapshot) {
+      throw new Error('Approver signature is required. Please set your signature before approving.');
+    }
+
     for (const requestId of requestIds) {
       try {
         const [rows] = await connection.query<RowDataPacket[]>(
@@ -748,26 +756,45 @@ export async function finalizeRequest(
   }
 
   const request = mapRequestRow(requests[0]) as PTSRequest & { citizen_id: string };
+  const citizenId = (requests[0] as any).citizen_id as string;
 
   if (request.requested_amount && request.requested_amount > 0) {
+    if (!request.effective_date) {
+      throw new Error('effective_date is required for rate adjustment finalization');
+    }
+
+    const effectiveDate = new Date(request.effective_date);
+
+    if (Number.isNaN(effectiveDate.getTime())) {
+      throw new Error('Invalid effective_date for rate adjustment finalization');
+    }
+
     let adjustmentType: 'NEW' | 'ADJUST' | 'BACKPAY' = 'ADJUST';
     if (request.request_type === RequestType.NEW_ENTRY) adjustmentType = 'NEW';
 
-    if (request.effective_date) {
-      const eff = new Date(request.effective_date);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (eff < today) {
-        adjustmentType = 'BACKPAY';
-      }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (effectiveDate < today) {
+      adjustmentType = 'BACKPAY';
     }
+
+    const expiryDate = new Date(effectiveDate);
+    expiryDate.setUTCDate(expiryDate.getUTCDate() - 1);
+    const expiryDateStr = expiryDate.toISOString().slice(0, 10);
+
+    await connection.execute(
+      `UPDATE pts_rate_adjustments
+       SET is_active = 0, expiry_date = ?
+       WHERE citizen_id = ? AND is_active = 1`,
+      [expiryDateStr, citizenId]
+    );
 
     const [res] = await connection.execute<ResultSetHeader>(
       `INSERT INTO pts_rate_adjustments
        (citizen_id, pts_rate, effective_date, request_id, adjustment_type, is_active, note)
        VALUES (?, ?, ?, ?, ?, 1, ?)`,
       [
-        (requests[0] as any).citizen_id,
+        citizenId,
         request.requested_amount,
         request.effective_date,
         requestId,
