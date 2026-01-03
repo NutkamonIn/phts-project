@@ -34,6 +34,10 @@ router.post(
  * Available to all authenticated users
  */
 
+// Master rates and recommended rate
+router.get('/master-rates', requestController.getMasterRates);
+router.get('/recommended-rate', requestController.getRecommendedRate);
+
 // Create new request with file uploads and signature
 router.post(
   '/',
@@ -68,6 +72,19 @@ router.get(
 router.get(
   '/:id',
   requestController.getRequestById
+);
+
+// Unified action endpoint (APPROVE / REJECT / RETURN)
+router.put(
+  '/:id/action',
+  restrictTo(
+    UserRole.HEAD_DEPT,
+    UserRole.PTS_OFFICER,
+    UserRole.HEAD_HR,
+    UserRole.DIRECTOR,
+    UserRole.HEAD_FINANCE
+  ),
+  requestController.processAction
 );
 
 // Submit a draft request

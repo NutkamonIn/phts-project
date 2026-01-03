@@ -134,7 +134,11 @@ async function startServer() {
     console.log('Testing database connection...');
     await testConnection();
 
-    // Start Express server
+    // Start Express server (skip in tests)
+    if (NODE_ENV === 'test') {
+      return;
+    }
+
     app.listen(PORT, () => {
       console.log('');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -187,6 +191,8 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
 });
 
 // Start the server
-startServer();
+if (NODE_ENV !== 'test') {
+  startServer();
+}
 
 export default app;

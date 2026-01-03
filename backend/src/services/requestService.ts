@@ -24,6 +24,8 @@ import {
   BatchApproveParams,
   BatchApproveResult,
 } from '../types/request.types.js';
+import { findRecommendedRate, MasterRate } from './classificationService.js';
+import { createEligibility } from './eligibilityService.js';
 
 interface FinalizeResult {
   rateAdjustmentId: number | null;
@@ -103,6 +105,23 @@ function mapRequestRow(row: any): PTSRequest & {
     updated_at: row.updated_at,
     submitted_at: row.submitted_at ?? null,
   } as any;
+}
+
+/**
+ * Public helper: recommended master rate for a given user.
+ */
+export async function getRecommendedRateForUser(userId: number): Promise<MasterRate | null> {
+  const users = await query<RowDataPacket[]>(
+    'SELECT citizen_id FROM users WHERE user_id = ? LIMIT 1',
+    [userId]
+  );
+
+  if (!users || users.length === 0) {
+    throw new Error('User not found');
+  }
+
+  const citizenId = (users[0] as any).citizen_id as string;
+  return await findRecommendedRate(citizenId);
 }
 
 /**
@@ -764,6 +783,10 @@ export async function finalizeRequest(
     }
 
     const effectiveDate = new Date(request.effective_date);
+    const effectiveDateStr =
+      typeof request.effective_date === 'string'
+        ? request.effective_date
+        : effectiveDate.toISOString().slice(0, 10);
 
     if (Number.isNaN(effectiveDate.getTime())) {
       throw new Error('Invalid effective_date for rate adjustment finalization');
@@ -803,6 +826,17 @@ export async function finalizeRequest(
       ]
     );
     result.rateAdjustmentId = res.insertId;
+
+    const recommendedRate = await findRecommendedRate(citizenId);
+    if (recommendedRate) {
+      await createEligibility(
+        connection,
+        citizenId,
+        recommendedRate.rate_id,
+        effectiveDateStr,
+        requestId
+      );
+    }
   }
 
   return result;

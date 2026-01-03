@@ -17,6 +17,7 @@ import {
   BatchApproveResult,
 } from '../types/request.types.js';
 import * as requestService from '../services/requestService.js';
+import { findRecommendedRate, getAllActiveMasterRates } from '../services/classificationService.js';
 import { handleUploadError } from '../config/upload.js';
 
 /**
@@ -618,5 +619,99 @@ export async function approveBatch(
       success: false,
       error: error.message || 'An error occurred during batch approval',
     });
+  }
+}
+
+/**
+ * Get recommended rate for the current user (or specified citizen_id)
+ */
+export async function getRecommendedRate(req: Request, res: Response): Promise<void> {
+  try {
+    const citizenId = (req as any).user?.citizenId || req.query.citizen_id;
+
+    if (!citizenId || typeof citizenId !== 'string') {
+      res.status(400).json({ error: 'Citizen ID is required' });
+      return;
+    }
+
+    const rate = await findRecommendedRate(citizenId);
+
+    if (!rate) {
+      res
+        .status(404)
+        .json({ message: 'ไม่พบข้อมูลการจัดกลุ่มสำหรับตำแหน่งนี้ หรือข้อมูลไม่เพียงพอ' });
+      return;
+    }
+
+    res.json({ success: true, data: rate });
+  } catch (error: any) {
+    console.error('Error fetching recommended rate:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * Unified process action (APPROVE, REJECT, RETURN)
+ */
+export async function processAction(req: Request, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: 'Unauthorized access' });
+      return;
+    }
+
+    const requestId = parseInt(req.params.id, 10);
+    if (Number.isNaN(requestId)) {
+      res.status(400).json({ error: 'Invalid request ID' });
+      return;
+    }
+
+    const { action, comment } = req.body as { action: string; comment?: string };
+    if (!['APPROVE', 'REJECT', 'RETURN'].includes(action)) {
+      res.status(400).json({ error: 'Invalid action' });
+      return;
+    }
+
+    let result: any;
+    if (action === 'APPROVE') {
+      result = await requestService.approveRequest(
+        requestId,
+        req.user.userId,
+        req.user.role,
+        comment
+      );
+    } else if (action === 'REJECT') {
+      result = await requestService.rejectRequest(
+        requestId,
+        req.user.userId,
+        req.user.role,
+        comment || ''
+      );
+    } else {
+      result = await requestService.returnRequest(
+        requestId,
+        req.user.userId,
+        req.user.role,
+        comment || ''
+      );
+    }
+
+    res.json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('Process action error:', error);
+    res.status(400).json({ error: error.message });
+  }
+}
+
+/**
+ * Get all active master rates
+ */
+export async function getMasterRates(_req: Request, res: Response): Promise<void> {
+  try {
+    const rates = await getAllActiveMasterRates();
+    res.json({ success: true, data: rates });
+  } catch (error: any) {
+    console.error('Get master rates error:', error);
+    res.status(500).json({ error: error.message });
   }
 }

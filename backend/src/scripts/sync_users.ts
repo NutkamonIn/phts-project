@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Config เชื่อมต่อฐานข้อมูล
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
@@ -13,21 +14,43 @@ const dbConfig = {
 };
 
 const SALT_ROUNDS = 10;
+const ALLOWED_ROLES = new Set([
+  'USER',
+  'ADMIN',
+  'HEAD_DEPT',
+  'OFFICER',
+  'HEAD_HR',
+  'DIRECTOR',
+  'FINANCE',
+]);
+
+function normalizeRole(rawRole: any): string {
+  if (!rawRole) return 'USER';
+  const role = rawRole.toString().trim().toUpperCase();
+  return ALLOWED_ROLES.has(role) ? role : 'USER';
+}
+
+function truncateField(value: any, maxLength: number): string | null {
+  if (value === null || value === undefined) return null;
+  const str = value.toString();
+  return str.length > maxLength ? str.slice(0, maxLength) : str;
+}
 
 async function syncAll() {
-  console.log('🚀 Starting Master Synchronization...');
+  console.log('🚀 Starting Master Synchronization (V3.0 Schema Compatible)...');
   let connection;
 
   try {
     connection = await mysql.createConnection(dbConfig);
 
     // ==========================================
-    // PHASE 1: Sync User Accounts (Auth Data)
+    // PHASE 1: Sync User Accounts (Login Data)
     // ==========================================
+    // ส่วนนี้จัดการเรื่อง Login (citizen_id/password)
     console.log('\n🔐 Phase 1: Syncing User Accounts (Auth)...');
+
     const [viewUsers]: any[] = await connection.query(`SELECT * FROM users_sync_view`);
 
-    // Cache ID ของคนที่ Active ไว้
     const activeCitizenIds: string[] = [];
     let updatedUsers = 0;
 
@@ -43,124 +66,126 @@ async function syncAll() {
         finalHash = await bcrypt.hash(String(u.plain_password), SALT_ROUNDS);
       }
 
+      // Default role เป็น USER ไปก่อน ถ้ามี logic ปรับ role ค่อยว่ากัน
+      const role = normalizeRole(u.role);
+
       await connection.query(
         `
-        INSERT INTO users (citizen_id, password_hash, role, is_active, updated_at)
-        VALUES (?, ?, ?, 1, NOW())
+        INSERT INTO users (citizen_id, password_hash, role, created_at, updated_at)
+        VALUES (?, ?, ?, NOW(), NOW())
         ON DUPLICATE KEY UPDATE
           password_hash = VALUES(password_hash),
           role = VALUES(role),
-          is_active = 1,
           updated_at = NOW()
       `,
-        [u.citizen_id, finalHash, u.role],
+        [u.citizen_id, finalHash, role],
       );
       updatedUsers++;
     }
-    console.log(`   ✅ Synced ${updatedUsers} accounts.`);
-
-    // Deactivate คนที่หายไปจาก View
-    if (activeCitizenIds.length > 0) {
-      const placeholders = activeCitizenIds.map(() => '?').join(',');
-      const [res]: any = await connection.query(
-        `
-        UPDATE users SET is_active = 0
-        WHERE citizen_id NOT IN (${placeholders}) AND is_active = 1
-      `,
-        activeCitizenIds,
-      );
-      if (res.affectedRows > 0)
-        console.log(`   ⛔ Deactivated ${res.affectedRows} obsolete users.`);
-    }
+    console.log(`   ✅ Synced ${updatedUsers} user accounts.`);
 
     // ==========================================
     // PHASE 2: Sync Medical Profiles (pts_employees)
     // ==========================================
-    console.log('\n👩‍⚕️ Phase 2: Syncing Medical Profiles (pts_employees)...');
-    // ดึงเฉพาะคนที่มี User Account แล้วเท่านั้น เพื่อประหยัดพื้นที่
-    const [medStaff]: any[] = await connection.query(`
+    // ส่วนนี้สำคัญที่สุด: ดึงข้อมูลเพื่อใช้จัดกลุ่ม (Classification)
+    console.log('\n👩‍⚕️ Phase 2: Syncing Employee Profiles from View `employees`...');
+
+    // ดึงข้อมูลจาก View ที่คุณสร้างไว้ใน logic.sql
+    // เราจะดึงเฉพาะคนที่มี User Account แล้ว (Active Users) เพื่อความสอดคล้อง
+    const [empData]: any[] = await connection.query(`
       SELECT * FROM employees
-      WHERE citizen_id IN (SELECT citizen_id FROM users WHERE is_active = 1)
+      WHERE citizen_id IN (SELECT citizen_id FROM users)
     `);
 
-    for (const e of medStaff) {
+    let syncedProfiles = 0;
+
+    for (const e of empData) {
+      // Map ข้อมูลจาก View (Source) -> Table ใหม่ (Destination)
+      // View Field: employee_type -> Table: emp_type
+      // View Field: start_current_position -> Table: start_work_date
+
       await connection.query(
         `
         INSERT INTO pts_employees
-        (citizen_id, title, first_name, last_name, name_eng, sex, birth_date,
-         position_name, position_number, level, employee_type, start_current_position,
-         mission_group, department, sub_department, pts_rate, pts_group_no, pts_item_no, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        (
+          citizen_id,
+          title, first_name, last_name,
+          sex, birth_date,
+          position_name, position_number, level, special_position,
+          emp_type, mission_group, department, sub_department,
+          specialist, expert,
+          start_work_date, first_entry_date, original_status,
+          last_synced_at
+        )
+        VALUES (
+          ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, ?, ?, ?,
+          ?, NOW()
+        )
         ON DUPLICATE KEY UPDATE
-          title = VALUES(title), first_name = VALUES(first_name), last_name = VALUES(last_name),
-          position_name = VALUES(position_name), position_number = VALUES(position_number),
-          level = VALUES(level), department = VALUES(department), sub_department = VALUES(sub_department),
-          pts_rate = VALUES(pts_rate), pts_group_no = VALUES(pts_group_no),
-          pts_item_no = VALUES(pts_item_no), updated_at = NOW()
+          title = VALUES(title),
+          first_name = VALUES(first_name),
+          last_name = VALUES(last_name),
+          sex = VALUES(sex),
+          birth_date = VALUES(birth_date),
+          position_name = VALUES(position_name),
+          position_number = VALUES(position_number),
+          level = VALUES(level),
+          special_position = VALUES(special_position),
+          emp_type = VALUES(emp_type),
+          mission_group = VALUES(mission_group),
+          department = VALUES(department),
+          sub_department = VALUES(sub_department),
+          specialist = VALUES(specialist),
+          expert = VALUES(expert),
+          start_work_date = VALUES(start_work_date),
+          first_entry_date = VALUES(first_entry_date),
+          original_status = VALUES(original_status),
+          last_synced_at = NOW()
       `,
         [
           e.citizen_id,
           e.title,
           e.first_name,
           e.last_name,
-          e.name_eng,
           e.sex,
           e.birth_date,
           e.position_name,
           e.position_number,
           e.level,
-          e.employee_type,
-          e.start_current_position,
+          truncateField(e.special_position, 100),
+          e.employee_type, // Map to emp_type
           e.mission_group,
           e.department,
-          e.sub_department,
-          e.pts_rate,
-          e.pts_group_no,
-          e.pts_item_no,
+          e.sub_department, // สำคัญ: ใช้แยก Ward/Unit
+          e.specialist, // สำคัญ: ใช้แยกแพทย์เฉพาะทาง
+          e.expert, // สำคัญ: ใช้แยกคุณสมบัติพิเศษ (ป.โท/เอก)
+          e.start_current_position, // Map to start_work_date
+          e.first_entry_date,
+          e.original_status,
         ],
       );
+      syncedProfiles++;
     }
-    console.log(`   ✅ Synced ${medStaff.length} medical profiles.`);
+    console.log(`   ✅ Synced ${syncedProfiles} employee profiles with classification data.`);
 
     // ==========================================
-    // PHASE 3: Sync Support Profiles (pts_support_employees)
+    // PHASE 3: Sync Support Profiles (Optional)
     // ==========================================
-    console.log('\n💼 Phase 3: Syncing Support Profiles (pts_support_employees)...');
-    const [supStaff]: any[] = await connection.query(`
-      SELECT * FROM support_employees
-      WHERE citizen_id IN (SELECT citizen_id FROM users WHERE is_active = 1)
-    `);
+    // ถ้ามี View สำหรับสายสนับสนุนแยกต่างหาก ก็ทำคล้ายๆ กัน
+    // แต่จาก logic.sql ดูเหมือน View `employees` จะรวมทุกวิชาชีพไว้แล้ว
+    // ดังนั้นอาจจะไม่ต้องทำ Phase 3 แยก หรือทำเฉพาะกลุ่มที่ไม่อยู่ใน `employees` view
 
-    for (const s of supStaff) {
-      await connection.query(
-        `
-        INSERT INTO pts_support_employees
-        (citizen_id, title, first_name, last_name, position_name, position_number, department, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-        ON DUPLICATE KEY UPDATE
-          title = VALUES(title), first_name = VALUES(first_name), last_name = VALUES(last_name),
-          position_name = VALUES(position_name), position_number = VALUES(position_number),
-          department = VALUES(department), updated_at = NOW()
-      `,
-        [
-          s.citizen_id,
-          s.title,
-          s.first_name,
-          s.last_name,
-          s.position_name,
-          s.position_number,
-          s.department,
-        ],
-      );
-    }
-    console.log(`   ✅ Synced ${supStaff.length} support profiles.`);
-
-    console.log('\n✨ All Sync Operations Completed Successfully!');
+    console.log('\n✨ Database Synchronization Completed!');
   } catch (error: any) {
     console.error('\n❌ Sync Failed:', error.message);
+    console.error('Stack:', error.stack);
   } finally {
     if (connection) await connection.end();
   }
 }
 
+// Run the script
 syncAll();
