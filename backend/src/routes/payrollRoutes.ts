@@ -1,25 +1,58 @@
-import { Router } from "express";
-import { payrollController } from "../controllers/payrollController.js";
-import { calculatePayrollValidator } from "../validators/payrollValidators.js";
-// import { protect, restrictTo } from "../middlewares/authMiddleware.js";
+import { Router } from 'express';
+import {
+  approveByDirector,
+  approveByHR,
+  calculatePeriod,
+  getPeriodStatus,
+  rejectPeriod,
+  submitToHR,
+} from '../controllers/payrollController.js';
+import { protect, restrictTo } from '../middlewares/authMiddleware.js';
+import { UserRole } from '../types/auth.js';
 
 const router = Router();
 
-// router.use(protect);
+// View period status (authenticated dashboard users)
+router.get('/period', protect, getPeriodStatus);
 
-// 1. ?????????????? (????????????????? ADMIN ???? HR/FINANCE)
-// POST /api/payroll/calculate
-router.post('/calculate', calculatePayrollValidator, payrollController.calculatePayroll);
+// Calculate (OFFICER/ADMIN)
+router.post(
+  '/period/:periodId/calculate',
+  protect,
+  restrictTo(UserRole.PTS_OFFICER, UserRole.ADMIN),
+  calculatePeriod,
+);
 
-// 2. ????????????????
-// GET /api/payroll/periods
-router.get('/periods', payrollController.getPeriods);
+// Submit to HR (OFFICER/ADMIN)
+router.post(
+  '/period/:periodId/submit',
+  protect,
+  restrictTo(UserRole.PTS_OFFICER, UserRole.ADMIN),
+  submitToHR,
+);
 
-// 3. ????????????????????
-// GET /api/payroll/periods/:id/payouts
-router.get('/periods/:id/payouts', payrollController.getPayouts);
+// Approve by HR
+router.post(
+  '/period/:periodId/approve-hr',
+  protect,
+  restrictTo(UserRole.HEAD_HR, UserRole.ADMIN),
+  approveByHR,
+);
 
-// Batch calculation (all active employees)
-router.post('/calculate-batch', payrollController.calculatePayrollBatch);
+// Approve by Director
+router.post(
+  '/period/:periodId/approve-director',
+  protect,
+  restrictTo(UserRole.DIRECTOR, UserRole.ADMIN),
+  approveByDirector,
+);
+
+// Reject (HR/Director/Admin)
+router.post(
+  '/period/:periodId/reject',
+  protect,
+  restrictTo(UserRole.HEAD_HR, UserRole.DIRECTOR, UserRole.ADMIN),
+  rejectPeriod,
+);
 
 export default router;
