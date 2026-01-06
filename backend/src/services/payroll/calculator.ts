@@ -1,4 +1,5 @@
 import { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { Decimal } from 'decimal.js';
 import pool from '../../config/database.js';
 import { LIFETIME_LICENSE_KEYWORDS } from '../../config/payroll.constants.js';
 import { calculateDeductions, LeaveRow, QuotaRow } from './deductions.js';
@@ -135,7 +136,7 @@ export async function calculateMonthly(
 
   const deductionMap = calculateDeductions(leaves, quota, holidays, startOfMonth, endOfMonth);
 
-  let totalPayment = 0;
+  let totalPayment = new Decimal(0);
   let validLicenseDays = 0;
   let totalDeductionDays = 0;
   let daysCounted = 0;
@@ -169,12 +170,15 @@ export async function calculateMonthly(
       if (deductionWeight > 0) totalDeductionDays += deductionWeight;
       if (eligibleWeight > 0) daysCounted += eligibleWeight;
 
-      totalPayment += (currentRate / daysInMonth) * eligibleWeight;
+      const dailyRate = new Decimal(currentRate || 0).div(daysInMonth);
+      totalPayment = totalPayment.plus(dailyRate.mul(eligibleWeight));
     }
   }
 
   return {
-    netPayment: parseFloat(totalPayment.toFixed(2)),
+    netPayment: totalPayment
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber(),
     totalDeductionDays,
     validLicenseDays,
     eligibleDays: daysCounted,

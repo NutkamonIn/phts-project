@@ -172,7 +172,7 @@ export async function createRequest(
         ? JSON.stringify({ main_duty: data.main_duty })
         : null;
 
-    // Basic guard rails for NOT NULL fields
+    // Validate mandatory fields required by schema
     if (data.requested_amount === undefined || data.requested_amount === null) {
       throw new Error('requested_amount is required');
     }
@@ -775,7 +775,7 @@ export async function finalizeRequest(
     } else {
       const professionCode = (recommendedRate as any)?.profession_code;
       let sql = `SELECT rate_id FROM pts_master_rates WHERE amount = ? AND is_active = 1`;
-      const params: any[] = [request.requested_amount];
+      const params: (string | number | null)[] = [request.requested_amount];
       if (professionCode) {
         sql += ` AND profession_code = ?`;
         params.push(professionCode);

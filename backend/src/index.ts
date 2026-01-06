@@ -18,6 +18,7 @@ import requestRoutes from './routes/requestRoutes.js';
 import signatureRoutes from './routes/signatureRoutes.js';
 import payrollRoutes from './routes/payrollRoutes.js';
 import reportRoutes from './routes/reportRoutes.js';
+import systemRoutes from './routes/systemRoutes.js';
 import { ApiResponse } from './types/auth.js';
 import { errorHandler, notFoundHandler } from './middlewares/errorHandler.js';
 
@@ -32,7 +33,6 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 /**
  * Security Middleware
  */
-// Helmet helps secure Express apps by setting various HTTP headers
 app.use(helmet());
 
 /**
@@ -45,7 +45,7 @@ app.use(
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-  })
+  }),
 );
 
 /**
@@ -92,6 +92,7 @@ app.use('/api/requests', requestRoutes);
 app.use('/api/signatures', signatureRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/system', systemRoutes);
 
 /**
  * 404 Handler - Route Not Found
@@ -105,27 +106,20 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 /**
- * Start Server
- * Test database connection before starting the server
+ * Start server and verify database connectivity before accepting requests
  */
 async function startServer() {
   try {
-    // Test database connection
-    console.log('Testing database connection...');
+    // Verify database connectivity
+    console.log('[Server] Verifying database connection...');
     await testConnection();
 
     // Start Express server
     app.listen(PORT, () => {
-      console.log('');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('  PHTS Backend Server');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log(`  Environment: ${NODE_ENV}`);
-      console.log(`  Port: ${PORT}`);
-      console.log(`  URL: http://localhost:${PORT}`);
-      console.log(`  Health: http://localhost:${PORT}/health`);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('');
+      console.log(
+        `[Server] PHTS Backend started on port ${PORT} (${process.env.NODE_ENV})`,
+      );
+      console.log(`[Server] Database host: ${process.env.DB_HOST || 'localhost'}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);

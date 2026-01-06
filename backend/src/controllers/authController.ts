@@ -19,32 +19,10 @@ import {
   UserProfile,
 } from '../types/auth.js';
 import { query } from '../config/database.js';
+import { isValidCitizenId } from '../utils/validationUtils.js';
 
 // Load environment variables
 dotenv.config();
-
-/**
- * Validates Thai Citizen ID format and checksum (Mod 11)
- *
- * @param citizenId - The citizen ID to validate
- * @returns true if valid, false otherwise
- */
-function isValidCitizenId(citizenId: string): boolean {
-  const regex = /^\d{13}$/;
-  if (!regex.test(citizenId)) {
-    return false;
-  }
-
-  // Checksum calculation: (13..2 multipliers) then mod 11
-  const digits = citizenId.split('').map((d) => parseInt(d, 10));
-  const sum = digits.slice(0, 12).reduce((acc, digit, idx) => {
-    const weight = 13 - idx;
-    return acc + digit * weight;
-  }, 0);
-  const checksum = (11 - (sum % 11)) % 10;
-
-  return checksum === digits[12];
-}
 
 /**
  * Get user base record plus profile details from local tables.
