@@ -29,7 +29,7 @@ dotenv.config();
  */
 async function getUserWithProfile(userId: number): Promise<UserProfile | null> {
   const users = await query<User[]>(
-    'SELECT user_id, citizen_id, role, is_active, last_login_at FROM users WHERE user_id = ? LIMIT 1',
+    'SELECT id AS user_id, citizen_id, role, is_active, last_login_at FROM users WHERE id = ? LIMIT 1',
     [userId]
   );
 
@@ -108,7 +108,7 @@ export async function login(
 
     // Query user from database
     const users = await query<User[]>(
-      'SELECT user_id, citizen_id, password_hash, role, is_active, last_login_at FROM users WHERE citizen_id = ? LIMIT 1',
+      'SELECT id AS user_id, citizen_id, password_hash, role, is_active, last_login_at FROM users WHERE citizen_id = ? LIMIT 1',
       [citizen_id]
     );
 
@@ -145,7 +145,7 @@ export async function login(
 
     // Update last login timestamp
     await query(
-      'UPDATE users SET last_login_at = NOW() WHERE user_id = ?',
+      'UPDATE users SET last_login_at = NOW() WHERE id = ?',
       [user.user_id]
     );
 

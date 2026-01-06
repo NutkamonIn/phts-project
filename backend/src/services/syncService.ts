@@ -68,6 +68,7 @@ export class SyncService {
     const stats = {
       users: { added: 0, updated: 0, skipped: 0 },
       employees: { upserted: 0, skipped: 0 },
+      support_employees: { upserted: 0, skipped: 0 },
       signatures: { added: 0, skipped: 0 },
       licenses: { upserted: 0 },
       quotas: { upserted: 0 },
@@ -201,6 +202,78 @@ export class SyncService {
           ],
         );
         stats.employees.upserted++;
+      }
+
+      // 2.5 Support Employees (Contract/Government employees)
+      console.log('[SyncService] Processing support employees...');
+
+      const [existingSupEmps] = await conn.query<RowDataPacket[]>(
+        `SELECT citizen_id, title, first_name, last_name, position_name, 
+                level, special_position, emp_type, department, 
+                is_currently_active, is_enable_login 
+         FROM pts_support_employees`,
+      );
+      const supEmpMap = new Map(existingSupEmps.map((e) => [e.citizen_id, e]));
+
+      const [viewSupEmps] = await conn.query<RowDataPacket[]>(
+        'SELECT * FROM support_employees',
+      );
+
+      for (const vSup of viewSupEmps) {
+        const dbSup = supEmpMap.get(vSup.citizen_id);
+
+        if (
+          dbSup &&
+          !isChanged(dbSup.title, vSup.title) &&
+          !isChanged(dbSup.first_name, vSup.first_name) &&
+          !isChanged(dbSup.last_name, vSup.last_name) &&
+          !isChanged(dbSup.position_name, vSup.position_name) &&
+          !isChanged(dbSup.level, vSup.level) &&
+          !isChanged(dbSup.special_position, vSup.special_position) &&
+          !isChanged(dbSup.emp_type, vSup.employee_type) &&
+          !isChanged(dbSup.department, vSup.department) &&
+          Number(dbSup.is_currently_active) === Number(vSup.is_currently_active) &&
+          Number(dbSup.is_enable_login) === Number(vSup.is_enable_login)
+        ) {
+          stats.support_employees.skipped++;
+          continue;
+        }
+
+        await conn.execute(
+          `
+          INSERT INTO pts_support_employees (
+            citizen_id, title, first_name, last_name, 
+            position_name, level, special_position, emp_type, 
+            department, is_currently_active, is_enable_login, last_synced_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+          ON DUPLICATE KEY UPDATE
+            title = VALUES(title),
+            first_name = VALUES(first_name),
+            last_name = VALUES(last_name),
+            position_name = VALUES(position_name),
+            level = VALUES(level),
+            special_position = VALUES(special_position),
+            emp_type = VALUES(emp_type),
+            department = VALUES(department),
+            is_currently_active = VALUES(is_currently_active),
+            is_enable_login = VALUES(is_enable_login),
+            last_synced_at = NOW()
+        `,
+          [
+            toNull(vSup.citizen_id),
+            toNull(vSup.title),
+            toNull(vSup.first_name),
+            toNull(vSup.last_name),
+            toNull(vSup.position_name),
+            toNull(vSup.level),
+            toNull(vSup.special_position),
+            toNull(vSup.employee_type),
+            toNull(vSup.department),
+            toNull(vSup.is_currently_active),
+            toNull(vSup.is_enable_login),
+          ],
+        );
+        stats.support_employees.upserted++;
       }
 
       // 3. Signatures
