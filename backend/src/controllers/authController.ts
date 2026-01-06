@@ -40,7 +40,8 @@ async function getUserWithProfile(userId: number): Promise<UserProfile | null> {
   const user = users[0];
 
   let employeeDetails = await query<any[]>(
-    `SELECT first_name, last_name, position_name as position, department, position_number, employee_type, mission_group, start_current_position
+    `SELECT first_name, last_name, position_name as position, department, position_number, 
+     emp_type as employee_type, mission_group, start_work_date as start_current_position
      FROM pts_employees WHERE citizen_id = ? LIMIT 1`,
     [user.citizen_id]
   );
