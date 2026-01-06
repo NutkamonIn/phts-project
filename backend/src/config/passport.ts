@@ -48,9 +48,11 @@ passport.use(
         return done(null, false, { message: 'Invalid token payload' });
       }
 
-      // Verify user still exists and is active in database
       const users = await query<User[]>(
-        'SELECT user_id, citizen_id, role, is_active FROM users WHERE user_id = ? AND citizen_id = ? LIMIT 1',
+        `SELECT id AS user_id, citizen_id, role, is_active 
+         FROM users 
+         WHERE id = ? AND citizen_id = ? 
+         LIMIT 1`,
         [userId, citizenId]
       );
 
