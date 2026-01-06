@@ -199,7 +199,7 @@ export function checkLicense(licenses: LicenseRow[], dateStr: string, positionNa
   }
 
   return licenses.some((lic) => {
-    if (keywordList.length > 0) {
+    if (lic.license_name && keywordList.length > 0) {
       const combined = `${lic.license_name ?? ''} ${lic.license_type ?? ''} ${lic.occupation_name ?? ''}`
         .toLowerCase()
         .normalize('NFC');

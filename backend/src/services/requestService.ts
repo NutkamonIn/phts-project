@@ -295,7 +295,7 @@ export async function getMyRequests(userId: number): Promise<RequestWithDetails[
   const requests = await query<RowDataPacket[]>(
     `SELECT r.*, u.citizen_id, u.role
      FROM pts_requests r
-     JOIN users u ON r.user_id = u.user_id
+     JOIN users u ON r.user_id = u.id
      WHERE r.user_id = ?
      ORDER BY r.created_at DESC`,
     [userId],
@@ -745,7 +745,7 @@ export async function finalizeRequest(
   const [requests] = await connection.query<RowDataPacket[]>(
     `SELECT r.*, u.citizen_id
      FROM pts_requests r
-     JOIN users u ON r.user_id = u.user_id
+     JOIN users u ON r.user_id = u.id
      WHERE r.request_id = ?`,
     [requestId],
   );
@@ -833,7 +833,7 @@ async function getRequestDetails(requestId: number): Promise<RequestWithDetails>
      LEFT JOIN pts_employees e ON u.citizen_id = e.citizen_id
      LEFT JOIN pts_support_employees s ON u.citizen_id = s.citizen_id
      WHERE a.request_id = ?
-     ORDER BY a.action_date ASC`,
+     ORDER BY a.created_at ASC`,
     [requestId],
   );
 
@@ -847,8 +847,8 @@ async function getRequestDetails(requestId: number): Promise<RequestWithDetails>
     from_step: action.step_no,
     to_step: action.step_no,
     comment: action.comment,
-    action_date: action.action_date,
-    created_at: action.action_date,
+    action_date: action.created_at,
+    created_at: action.created_at,
     signature_snapshot: action.signature_snapshot,
     actor: {
       citizen_id: action.actor_citizen_id,
